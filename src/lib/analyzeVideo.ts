@@ -1,3 +1,5 @@
+import { applyH, homography, COURT_CORNERS, type Pt } from "./homography";
+
 export type Team = "blue" | "red";
 
 export type ClipFrame = {
@@ -25,13 +27,7 @@ function clamp(v: number, a: number, b: number) {
   return Math.max(a, Math.min(b, v));
 }
 
-function sampleHue(
-  ctx: CanvasRenderingContext2D,
-  bx: number,
-  by: number,
-  bw: number,
-  bh: number
-) {
+function sampleHue(ctx: CanvasRenderingContext2D, bx: number, by: number, bw: number, bh: number) {
   const x = Math.max(0, Math.floor(bx + bw * 0.25));
   const y = Math.max(0, Math.floor(by + bh * 0.2));
   const w = Math.max(2, Math.floor(bw * 0.5));
@@ -52,16 +48,21 @@ function sampleHue(
   return (r - g) / d + 4;
 }
 
-function toCourt(nx: number, ny: number): { x: number; z: number } {
+function toCourt(px: number, py: number, H: number[] | null, vw: number, vh: number) {
+  if (H) {
+    const p = applyH(H, px, py);
+    return { x: clamp(p.x, -19.8, 19.8), z: clamp(p.y, -9.8, 9.8) };
+  }
   return {
-    x: clamp((nx - 0.5) * COURT_L, -19.5, 19.5),
-    z: clamp((ny - 0.5) * COURT_W, -9.5, 9.5),
+    x: clamp((px / vw - 0.5) * COURT_L, -19.5, 19.5),
+    z: clamp((py / vh - 0.5) * COURT_W, -9.5, 9.5),
   };
 }
 
 export async function analyzeVideo(
   video: HTMLVideoElement,
-  onProgress?: (pct: number, label: string) => void
+  onProgress?: (pct: number, label: string) => void,
+  corners?: Pt[]
 ): Promise<ClipData> {
   onProgress?.(2, "A carregar modelo de deteção…");
   const tf = await import("@tensorflow/tfjs");
@@ -72,17 +73,19 @@ export async function analyzeVideo(
   const duration = Math.min(video.duration || 6, 20);
   const fps = duration <= 8 ? 4 : 3;
   const steps = Math.max(8, Math.floor(duration * fps));
+  const vw = video.videoWidth || 640;
+  const vh = video.videoHeight || 360;
+  const H = corners && corners.length === 4 ? homography(corners, COURT_CORNERS) : null;
 
   const canvas = document.createElement("canvas");
-  const maxW = 480;
-  const scale = Math.min(1, maxW / (video.videoWidth || maxW));
-  canvas.width = Math.max(160, Math.floor((video.videoWidth || 640) * scale));
-  canvas.height = Math.max(90, Math.floor((video.videoHeight || 360) * scale));
+  const maxW = 640;
+  const scale = Math.min(1, maxW / vw);
+  canvas.width = Math.max(160, Math.floor(vw * scale));
+  canvas.height = Math.max(90, Math.floor(vh * scale));
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) throw new Error("Canvas indisponível");
 
   const raw: Det[][] = [];
-
   for (let i = 0; i < steps; i++) {
     const time = (i / (steps - 1)) * duration;
     video.currentTime = time;
@@ -99,14 +102,12 @@ export async function analyzeVideo(
     for (const p of preds) {
       if (p.score < 0.35) continue;
       const [bx, by, bw, bh] = p.bbox;
-      const nx = (bx + bw / 2) / canvas.width;
-      const ny = (by + bh * 0.92) / canvas.height;
-      const pos = toCourt(nx, ny);
-      if (p.class === "sports ball") {
-        frame.push({ ...pos, hue: -2, isBall: true });
-      } else if (p.class === "person") {
-        frame.push({ ...pos, hue: sampleHue(ctx, bx, by, bw, bh), isBall: false });
-      }
+      const px = (bx + bw / 2) / scale;
+      const py = (by + bh * 0.95) / scale;
+      const pos = toCourt(px, py, H, vw, vh);
+      if (H && (Math.abs(pos.x) > 21 || Math.abs(pos.z) > 11)) continue;
+      if (p.class === "sports ball") frame.push({ ...pos, hue: -2, isBall: true });
+      else if (p.class === "person") frame.push({ ...pos, hue: sampleHue(ctx, bx, by, bw, bh), isBall: false });
     }
     raw.push(frame);
     onProgress?.(Math.round(((i + 1) / steps) * 90), `A analisar frame ${i + 1}/${steps}`);
@@ -164,20 +165,11 @@ export function sampleClip(clip: ClipData, t01: number): ClipFrame {
     if (!pa && !pb) continue;
     const p1 = pa || pb;
     const p2 = pb || pa;
-    players.push({
-      x: p1.x + (p2.x - p1.x) * f,
-      z: p1.z + (p2.z - p1.z) * f,
-      team: p2.team,
-      gk: p2.gk,
-    });
+    players.push({ x: p1.x + (p2.x - p1.x) * f, z: p1.z + (p2.z - p1.z) * f, team: p2.team, gk: p2.gk });
   }
   return {
     t: u,
     players,
-    ball: [
-      a.ball[0] + (b.ball[0] - a.ball[0]) * f,
-      a.ball[1] + (b.ball[1] - a.ball[1]) * f,
-      a.ball[2] + (b.ball[2] - a.ball[2]) * f,
-    ],
+    ball: [a.ball[0] + (b.ball[0] - a.ball[0]) * f, a.ball[1] + (b.ball[1] - a.ball[1]) * f, a.ball[2] + (b.ball[2] - a.ball[2]) * f],
   };
 }
