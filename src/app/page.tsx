@@ -1,31 +1,21 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { analyzeVideo, type ClipData } from "@/lib/analyzeVideo";
 import type { Pt } from "@/lib/homography";
+import CourtOverlay from "@/components/CourtOverlay";
 
 const Scene = dynamic(() => import("@/components/Scene"), { ssr: false });
 
-const CORNER_LABELS = [
-  "1. Canto esquerdo mais perto de ti",
-  "2. Canto direito mais perto de ti",
-  "3. Canto direito mais longe",
-  "4. Canto esquerdo mais longe",
-];
-
-function clickToVideoPixel(video: HTMLVideoElement, e: React.MouseEvent) {
-  const rect = video.getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  const y = e.clientY - rect.top;
+function uiToVideoPixel(video: HTMLVideoElement, wrap: HTMLElement, ui: Pt): Pt {
+  const rect = wrap.getBoundingClientRect();
   const vw = video.videoWidth || 1;
   const vh = video.videoHeight || 1;
   const scale = Math.min(rect.width / vw, rect.height / vh);
-  const dw = vw * scale;
-  const dh = vh * scale;
-  const ox = (rect.width - dw) / 2;
-  const oy = (rect.height - dh) / 2;
-  return { x: (x - ox) / scale, y: (y - oy) / scale, uiX: x, uiY: y };
+  const ox = (rect.width - vw * scale) / 2;
+  const oy = (rect.height - vh * scale) / 2;
+  return { x: (ui.x - ox) / scale, y: (ui.y - oy) / scale };
 }
 
 export default function Home() {
@@ -33,10 +23,21 @@ export default function Home() {
   const [clip, setClip] = useState<ClipData | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
-  const [corners, setCorners] = useState<(Pt & { uiX: number; uiY: number })[]>([]);
-  const [calibrating, setCalibrating] = useState(false);
+  const [corners, setCorners] = useState<Pt[]>([]);
+  const [calibrating, setCalibrating] = useState(true);
+  const [box, setBox] = useState({ w: 480, h: 270 });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setBox({ w: el.clientWidth || 480, h: el.clientHeight || 270 }));
+    ro.observe(el);
+    setBox({ w: el.clientWidth || 480, h: el.clientHeight || 270 });
+    return () => ro.disconnect();
+  }, [videoUrl]);
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -49,16 +50,12 @@ export default function Home() {
     }
   };
 
-  const onVideoClick = (e: React.MouseEvent<HTMLVideoElement>) => {
-    if (!calibrating || !videoRef.current || corners.length >= 4) return;
-    setCorners((prev) => [...prev, clickToVideoPixel(videoRef.current!, e)]);
-  };
-
   const generate3D = async () => {
     const video = videoRef.current;
-    if (!video) return;
+    const wrap = wrapRef.current;
+    if (!video || !wrap) return;
     if (corners.length !== 4) {
-      setStatus("Marca primeiro os 4 cantos do campo no vídeo.");
+      setStatus("Arrasta os 4 cantos do campo virtual até coincidir com as linhas do vídeo.");
       setCalibrating(true);
       return;
     }
@@ -73,7 +70,7 @@ export default function Home() {
       const data = await analyzeVideo(
         video,
         (pct, label) => setStatus(`${label} (${pct}%)`),
-        corners.map(({ x, y }) => ({ x, y }))
+        corners.map((c) => uiToVideoPixel(video, wrap, c))
       );
       setClip(data);
       setCalibrating(false);
@@ -97,28 +94,24 @@ export default function Home() {
               <p className="text-xs text-zinc-400">Calibra o campo e gera o 3D</p>
             </div>
           </div>
-          <button onClick={() => fileInputRef.current?.click()} className="px-4 py-2 text-sm rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 transition">Carregar vídeo</button>
+          <button onClick={() => fileInputRef.current?.click()} className="px-4 py-2 text-sm rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700">Carregar vídeo</button>
           <input ref={fileInputRef} type="file" accept="video/*" className="hidden" onChange={handleFile} />
         </div>
       </header>
       <main className="flex-1 flex flex-col lg:flex-row max-w-7xl w-full mx-auto p-4 gap-4">
         {videoUrl && (
           <div className="lg:w-2/5 flex flex-col gap-2">
-            <h2 className="text-sm font-medium text-zinc-400">
-              {calibrating && corners.length < 4 ? CORNER_LABELS[corners.length] : "Vídeo de referência"}
-            </h2>
-            <div className="relative aspect-video bg-black rounded-xl overflow-hidden border border-zinc-800">
-              <video ref={videoRef} src={videoUrl} controls={!calibrating || corners.length >= 4} muted playsInline onClick={onVideoClick} className={`w-full h-full object-contain ${calibrating && corners.length < 4 ? "cursor-crosshair" : ""}`} />
-              {corners.map((c, i) => (
-                <div key={i} className="absolute w-4 h-4 -ml-2 -mt-2 rounded-full bg-amber-400 border-2 border-white text-[10px] font-bold text-black flex items-center justify-center pointer-events-none" style={{ left: c.uiX, top: c.uiY }}>{i + 1}</div>
-              ))}
+            <h2 className="text-sm font-medium text-zinc-400">{calibrating ? "Alinha o campo amarelo com as linhas do vídeo" : "Vídeo de referência"}</h2>
+            <div ref={wrapRef} className="relative aspect-video bg-black rounded-xl overflow-hidden border border-zinc-800">
+              <video ref={videoRef} src={videoUrl} controls={!calibrating} muted playsInline className="w-full h-full object-contain" />
+              {calibrating && box.w > 10 && <CourtOverlay width={box.w} height={box.h} onChange={setCorners} />}
             </div>
             <div className="flex gap-2">
-              <button onClick={() => { setCorners([]); setCalibrating(true); setClip(null); }} className="px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-sm">Remarcar cantos</button>
-              <button onClick={generate3D} disabled={busy || corners.length !== 4} className="flex-1 px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-sm font-medium">{busy ? "A gerar 3D…" : "Gerar representação 3D"}</button>
+              <button onClick={() => { setCalibrating(true); setClip(null); }} className="px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-sm">Ajustar campo</button>
+              <button onClick={generate3D} disabled={busy} className="flex-1 px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-sm font-medium">{busy ? "A gerar 3D…" : "Gerar representação 3D"}</button>
             </div>
             {status && <p className="text-xs text-zinc-400">{status}</p>}
-            <p className="text-xs text-zinc-500">Pausa o vídeo num frame em que se vejam os 4 cantos do campo. Clica-os nesta ordem: perto-esquerda, perto-direita, longe-direita, longe-esquerda.</p>
+            <p className="text-xs text-zinc-500">Pausa o vídeo. Arrasta os 4 pontos amarelos até as linhas do campo virtual coincidirem com as linhas visíveis (6 m, fundo, lateral). Os cantos fora de câmara também se arrastam.</p>
           </div>
         )}
         <div className={`flex-1 flex flex-col gap-2 ${videoUrl ? "lg:w-3/5" : "w-full"}`}>
