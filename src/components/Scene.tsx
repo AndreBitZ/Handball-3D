@@ -7,6 +7,8 @@ import Court from "./Court";
 import Player from "./Player";
 import Ball from "./Ball";
 
+const DURATION = 6;
+
 const initialBlue = [
   { pos: [-16, 0, 0] as [number, number, number], gk: true },
   { pos: [-8, 0, -6] as [number, number, number], gk: false },
@@ -56,11 +58,24 @@ function interpolate(t: number) {
   return { blue, red, ball: [ballX, ballY, ballZ] as [number, number, number] };
 }
 
+function pickMimeType() {
+  const types = [
+    "video/webm;codecs=vp9",
+    "video/webm;codecs=vp8",
+    "video/webm",
+    "video/mp4",
+  ];
+  return types.find((t) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(t)) ?? "";
+}
+
 export default function Scene() {
   const [progress, setProgress] = useState(0);
   const [playing, setPlaying] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const requestRef = useRef<number | null>(null);
   const startTime = useRef<number | null>(null);
+  const canvasEl = useRef<HTMLCanvasElement | null>(null);
+  const loopOnce = useRef(false);
 
   useEffect(() => {
     if (!playing) return;
@@ -68,9 +83,17 @@ export default function Scene() {
     const animate = (time: number) => {
       if (startTime.current === null) startTime.current = time;
       const elapsed = (time - startTime.current) / 1000;
-      const duration = 6;
-      const t = (elapsed % duration) / duration;
-      setProgress(t);
+      if (loopOnce.current) {
+        const t = Math.min(elapsed / DURATION, 1);
+        setProgress(t);
+        if (t >= 1) {
+          setPlaying(false);
+          loopOnce.current = false;
+          return;
+        }
+      } else {
+        setProgress((elapsed % DURATION) / DURATION);
+      }
       requestRef.current = requestAnimationFrame(animate);
     };
 
@@ -80,11 +103,66 @@ export default function Scene() {
     };
   }, [playing]);
 
+  const exportVideo = async () => {
+    const canvas = canvasEl.current;
+    if (!canvas || typeof MediaRecorder === "undefined") {
+      alert("Este browser não permite gravar o canvas.");
+      return;
+    }
+
+    const mimeType = pickMimeType();
+    if (!mimeType) {
+      alert("O browser não suporta gravação de vídeo a partir do canvas.");
+      return;
+    }
+
+    setExporting(true);
+    loopOnce.current = true;
+    startTime.current = null;
+    setProgress(0);
+    setPlaying(true);
+
+    await new Promise((r) => requestAnimationFrame(() => r(null)));
+
+    const stream = canvas.captureStream(30);
+    const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5_000_000 });
+    const chunks: BlobPart[] = [];
+
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunks.push(e.data);
+    };
+
+    recorder.onstop = () => {
+      const ext = mimeType.includes("mp4") ? "mp4" : "webm";
+      const blob = new Blob(chunks, { type: mimeType.split(";")[0] });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `andebol-3d-lance.${ext}`;
+      a.click();
+      URL.revokeObjectURL(url);
+      stream.getTracks().forEach((t) => t.stop());
+      setExporting(false);
+    };
+
+    recorder.start();
+    window.setTimeout(() => {
+      if (recorder.state === "recording") recorder.stop();
+    }, DURATION * 1000 + 250);
+  };
+
   const { blue, red, ball } = interpolate(progress);
 
   return (
     <div className="relative w-full h-full">
-      <Canvas shadows className="rounded-xl">
+      <Canvas
+        shadows
+        className="rounded-xl"
+        gl={{ preserveDrawingBuffer: true, antialias: true }}
+        onCreated={({ gl }) => {
+          canvasEl.current = gl.domElement;
+        }}
+      >
         <PerspectiveCamera makeDefault position={[0, 22, 28]} fov={45} />
         <OrbitControls
           enablePan={true}
@@ -129,10 +207,11 @@ export default function Scene() {
         <ContactShadows position={[0, 0.01, 0]} opacity={0.45} scale={50} blur={2} />
       </Canvas>
 
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-black/60 backdrop-blur px-5 py-3 rounded-full text-sm">
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-black/60 backdrop-blur px-4 py-3 rounded-full text-sm flex-wrap justify-center">
         <button
           onClick={() => setPlaying(!playing)}
-          className="px-4 py-1.5 rounded-full bg-white/10 hover:bg-white/20 transition"
+          disabled={exporting}
+          className="px-4 py-1.5 rounded-full bg-white/10 hover:bg-white/20 transition disabled:opacity-50"
         >
           {playing ? "Pausar" : "Play"}
         </button>
@@ -142,13 +221,21 @@ export default function Scene() {
           max={1}
           step={0.001}
           value={progress}
+          disabled={exporting}
           onChange={(e) => {
             setPlaying(false);
             setProgress(parseFloat(e.target.value));
           }}
-          className="w-40 accent-blue-500"
+          className="w-36 accent-blue-500"
         />
-        <span className="text-zinc-300 w-12 text-right">{(progress * 6).toFixed(1)}s</span>
+        <span className="text-zinc-300 w-12 text-right">{(progress * DURATION).toFixed(1)}s</span>
+        <button
+          onClick={exportVideo}
+          disabled={exporting}
+          className="px-4 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 transition disabled:opacity-60"
+        >
+          {exporting ? "A gravar…" : "Exportar vídeo"}
+        </button>
       </div>
     </div>
   );
