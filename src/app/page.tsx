@@ -62,10 +62,10 @@ export default function Home() {
       corners.length === 4
         ? corners
         : [
-            { x: box.w * 0.08, y: box.h * 0.88 },
-            { x: box.w * 0.92, y: box.h * 0.88 },
-            { x: box.w * 0.72, y: box.h * 0.18 },
-            { x: box.w * 0.28, y: box.h * 0.18 },
+            { x: box.w * 0.12, y: box.h * 0.78 },
+            { x: box.w * 0.88, y: box.h * 0.78 },
+            { x: box.w * 0.68, y: box.h * 0.28 },
+            { x: box.w * 0.32, y: box.h * 0.28 },
           ];
     setBusy(true);
     setStatus("A preparar…");
@@ -109,7 +109,7 @@ export default function Home() {
       <main className="flex-1 flex flex-col lg:flex-row max-w-7xl w-full mx-auto p-4 gap-4">
         {videoUrl && (
           <div className="lg:w-2/5 flex flex-col gap-2">
-            <h2 className="text-sm font-medium text-zinc-400">{calibrating ? "Arrasta o campo amarelo sobre as linhas do vídeo" : "Vídeo de referência"}</h2>
+            <h2 className="text-sm font-medium text-zinc-400">{calibrating ? "Arrasta o campo, as linhas ou os cantos" : "Vídeo de referência"}</h2>
             <div ref={wrapRef} className="relative aspect-video bg-black rounded-xl overflow-hidden border border-zinc-800">
               <video ref={videoRef} src={videoUrl} controls={!calibrating} muted playsInline className="w-full h-full object-contain" />
               {calibrating && box.w > 10 && <CourtOverlay width={box.w} height={box.h} onChange={setCorners} />}
@@ -119,7 +119,7 @@ export default function Home() {
               <button onClick={generate3D} disabled={busy} className="flex-1 px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-sm font-medium">{busy ? "A gerar 3D…" : "Gerar representação 3D"}</button>
             </div>
             {status && <p className="text-xs text-zinc-400">{status}</p>}
-            <p className="text-xs text-zinc-500">Não precisas de clicar nos cantos. Pausa o vídeo, alinha o campo amarelo com as linhas visíveis e gera o 3D.</p>
+            <p className="text-xs text-zinc-500">Pausa o vídeo. Arrasta o interior para mover tudo, os pontos claros no meio das linhas para mexer essa linha, e os círculos 1–4 para os cantos. Alinha com a linha central e a área de 6 m que se vê.</p>
           </div>
         )}
         <div className={`flex-1 flex flex-col gap-2 ${videoUrl ? "lg:w-3/5" : "w-full"}`}>
