@@ -1,15 +1,20 @@
 # Handball-3D
 
-Ferramenta web simples para visualizar lances de andebol em 3D:
+Ferramenta web para visualizar lances de andebol em 3D.
 
-- Campo aproximado + balizas
-- Avatares genéricos — **azul** vs **vermelho**
+- Campo oficial (40×20 m) + balizas
+- Avatares genéricos — azul vs vermelho
 - Bola
-- Demo de contra-ataque
-- Upload de vídeo de referência (lado a lado)
-- Câmara interativa
+- Campo virtual por cima do vídeo (arrastar, não é preciso clicar nos 4 cantos)
+- Geração 3D aproximada a partir do clip
+- Exportar o vídeo 3D
 
-Não extrai automaticamente o lance do vídeo. O vídeo serve como referência visual ao lado da representação 3D.
+## Uso
+
+1. Carrega um lance curto
+2. Pausa e alinha o campo amarelo com as linhas visíveis
+3. Gera a representação 3D
+4. Exporta se precisares
 
 ## Correr localmente
 
@@ -20,12 +25,10 @@ npm run dev
 
 Abre http://localhost:3000
 
-## Deploy na Vercel
+## Deploy
 
-1. Importa este repositório em [vercel.com](https://vercel.com/new)
-2. Framework: Next.js (detetado automaticamente)
-3. Deploy
+Publica a branch **main** mais recente (não um commit antigo).
 
 ## Stack
 
-Next.js + TypeScript + Tailwind + React Three Fiber + Three.js
+Next.js + TypeScript + Tailwind + React Three Fiber + Three.js + TensorFlow.js (deteção no browser)
